@@ -209,7 +209,7 @@ tr:last-child td{border-bottom:none}
     </div>
     <div class="topbar-right">
       <span class="topbar-date" id="topbar-date"></span>
-      <button class="topbar-view-btn" onclick="window.open('/',''_blank'')">Ver sitio</button>
+      <button class="topbar-view-btn" onclick="window.open('/', '_blank')">Ver sitio</button>
       <button class="btn-logout" onclick="doLogout()">Salir</button>
     </div>
   </div>
@@ -639,14 +639,17 @@ tr:last-child td{border-bottom:none}
   </div>
 </div>
 
+<script src="/config.js"></script>
 <script>
 // ══════════════════════════════════════════
 // CONFIG
 // ══════════════════════════════════════════
-const SUPABASE_URL = 'https://fvdzqzrlgueegjlpycbz.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ2ZHpxenJsZ3VlZWdqbHB5Y2J6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzYwMDU0MywiZXhwIjoyMDg5MTc2NTQzfQ.dr0N1JpVmxBWRmEQJaL7nzBW8A19dX601q6-sIkRJZQ'; // Se reemplaza con variable de entorno
-const ADMIN_PASSWORD = 'Suplementos.05'; // Se configura en Netlify
-const BUSINESS_WHATSAPP = '5491123456789'; // Reemplazar por el número real del negocio (formato internacional)
+const APP_CONFIG = window.__MJ_CONFIG__ || {};
+const SUPABASE_URL = APP_CONFIG.supabaseUrl || 'https://fvdzqzrlgueegjlpycbz.supabase.co';
+const SUPABASE_KEY = APP_CONFIG.supabaseKey || 'REPLACE_WITH_SUPABASE_KEY';
+const ADMIN_PASSWORD = APP_CONFIG.adminPassword || 'Suplementos.05';
+const BUSINESS_WHATSAPP = APP_CONFIG.businessWhatsapp || '5491123456789';
+
 // ══════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════
@@ -654,29 +657,80 @@ let allProducts = [], allVariants = [], allOrders = [], allClients = [], allDisc
 let knownOrderIds = new Set();
 let refreshTimer = null;
 
+const DATA_SECTIONS = [
+  {
+    key: 'productos',
+    label: 'productos',
+    load: () => sb('/products?order=category.asc,name.asc&select=*'),
+    onSuccess: (rows) => { allProducts = (rows || []).map(normalizeProductFlags); },
+    onError: () => { allProducts = []; },
+  },
+  {
+    key: 'variantes',
+    label: 'variantes',
+    load: () => sb('/variants?select=*'),
+    onSuccess: (rows) => { allVariants = rows || []; },
+    onError: () => { allVariants = []; },
+  },
+  {
+    key: 'pedidos',
+    label: 'pedidos',
+    load: () => sb('/orders?order=created_at.desc&select=*'),
+    onSuccess: (rows) => { allOrders = rows || []; },
+    onError: () => { allOrders = []; },
+  },
+  {
+    key: 'clientes',
+    label: 'clientes',
+    load: () => sb('/customers?order=created_at.desc&select=*'),
+    onSuccess: (rows) => { allClients = rows || []; },
+    onError: () => { allClients = []; },
+  },
+  {
+    key: 'descuentos',
+    label: 'descuentos',
+    load: () => sb('/discounts?order=created_at.desc&select=*'),
+    onSuccess: (rows) => { allDiscounts = rows || []; },
+    onError: () => { allDiscounts = []; },
+  },
+];
+
 function normalizeProductFlags(p) {
   if (!p || typeof p !== 'object') return p;
   const featuredRaw = p.featured ?? p.is_featured ?? p.destacado ?? p.destacada ?? false;
-  return { ...p, featured: featuredRaw === true || featuredRaw === 'true' || featuredRaw === 1 || featuredRaw === '1' };
+  return {
+    ...p,
+    featured: featuredRaw === true || featuredRaw === 'true' || featuredRaw === 1 || featuredRaw === '1',
+  };
 }
+
 // ══════════════════════════════════════════
 // SUPABASE HELPERS
 // ══════════════════════════════════════════
 async function sb(path, method='GET', body=null) {
+  if (!SUPABASE_URL || !SUPABASE_KEY || SUPABASE_KEY === 'REPLACE_WITH_SUPABASE_KEY') {
+    throw new Error('Configuración de Supabase incompleta. Definí window.__MJ_CONFIG__.supabaseUrl y supabaseKey.');
+  }
+
+  const headers = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': `Bearer ${SUPABASE_KEY}`,
+  };
+
+  if (body) headers['Content-Type'] = 'application/json';
+  if (method === 'POST' || method === 'PATCH') headers['Prefer'] = 'return=representation';
+
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
     method,
-    headers: {
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
-      'Content-Type': 'application/json',
-      'Prefer': method==='POST' ? 'return=representation' : method==='PATCH' ? 'return=representation' : '',
-    },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
+
   if (!res.ok && res.status !== 204) {
-    const err = await res.text();
-    throw new Error(`${res.status}: ${err}`);
+    const errText = await res.text();
+    throw new Error(`${res.status}: ${errText || 'Error desconocido en Supabase'}`);
   }
+
   if (res.status === 204) return null;
   return res.json();
 }
@@ -711,46 +765,49 @@ async function initAdmin() {
   document.getElementById('topbar-date').textContent = dateStr;
   document.getElementById('dash-date').textContent = dateStr;
 
-  let knownOrderIds = new Set();
-let refreshTimer = null;
+  await loadAll(false);
 
-function normalizeProductFlags(p) {
-  if (!p || typeof p !== 'object') return p;
-  const featuredRaw = p.featured ?? p.is_featured ?? p.destacado ?? p.destacada ?? false;
-  return { ...p, featured: featuredRaw === true || featuredRaw === 'true' || featuredRaw === 1 || featuredRaw === '1' };
-}
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => {
+    loadAll(true).catch((e) => showToast('Error al refrescar datos: ' + e.message, true));
+  }, 30000);
 }
 
 async function loadAll(showNotifications=true) {
   const previousOrderIds = new Set(knownOrderIds);
-  try {
-    const [products, variants, orders, clients, discounts] = await Promise.all([
-      sb('/products?order=category.asc,name.asc&select=*'),
-      sb('/variants?select=*'),
-      sb('/orders?order=created_at.desc&select=*'),
-      sb('/customers?order=created_at.desc&select=*'),
-      sb('/discounts?order=created_at.desc&select=*'),
-    ]);
-    allProducts = (products || []).map(normalizeProductFlags);
-    allVariants = variants || [];
-    allOrders = orders || [];
-    allClients = clients || [];
-    allDiscounts = discounts || [];
-      knownOrderIds = new Set(allOrders.map(o => o.id));
-    if (showNotifications) {
-      const newOrders = allOrders.filter(o => !previousOrderIds.has(o.id));
-      newOrders.forEach(o => notifyNewOrderWhatsApp(o));
-    }
+  const results = await Promise.allSettled(DATA_SECTIONS.map(section => section.load()));
 
-    renderDashboard();
-    renderProductos();
-    renderStock();
-    renderPedidos();
-    renderClientes();
-    renderDescuentos();
-    populateCatFilter();
-  } catch(e) {
-    showToast('Error al cargar datos: ' + e.message, true);
+  const failed = [];
+
+  results.forEach((result, idx) => {
+    const section = DATA_SECTIONS[idx];
+    if (result.status === 'fulfilled') {
+      section.onSuccess(result.value);
+    } else {
+      section.onError();
+      const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      failed.push(`${section.label} (${reason})`);
+      showToast(`No se pudieron cargar ${section.label}.`, true);
+      console.error(`[admin] Error en ${section.key}:`, result.reason);
+    }
+  });
+
+  knownOrderIds = new Set(allOrders.map(o => o.id));
+  if (showNotifications) {
+    const newOrders = allOrders.filter(o => !previousOrderIds.has(o.id));
+    newOrders.forEach(o => notifyNewOrderWhatsApp(o));
+  }
+
+  renderDashboard();
+  renderProductos();
+  renderStock();
+  renderPedidos();
+  renderClientes();
+  renderDescuentos();
+  populateCatFilter();
+
+  if (failed.length > 0) {
+    showToast(`Carga parcial: fallaron ${failed.length} sección(es). Revisá consola para detalle.`, true);
   }
 }
 
