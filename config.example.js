@@ -10,5 +10,7 @@ window.__MJ_CONFIG__ = {
   supabaseKey: 'TU_SUPABASE_ADMIN_KEY',
 
   adminPassword: 'CAMBIAR_ESTA_PASSWORD',
-  businessWhatsapp: '5491123456789',
+  businessWhatsapp: '5492302207044',
+   // Opcional: link de cobro para abrir Mercado Pago al confirmar pedido.
+  mercadoPagoCheckoutUrl: 'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=TU_PREFERENCE_ID',
 };
