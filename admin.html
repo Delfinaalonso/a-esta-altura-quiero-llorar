@@ -46,7 +46,10 @@ input,select,textarea{font-family:inherit}
 .btn-logout:hover{border-color:var(--danger);color:var(--danger)}
 .topbar-view-btn{background:var(--primary);color:var(--primary-fg);border:none;padding:.3rem .75rem;border-radius:var(--radius);font-size:.75rem;font-weight:700;transition:opacity .2s}
 .topbar-view-btn:hover{opacity:.85}
-
+.mobile-menu-btn{display:none;background:var(--muted-bg);border:1px solid var(--border);color:var(--fg);width:34px;height:34px;border-radius:var(--radius);align-items:center;justify-content:center}
+.mobile-menu-btn svg{width:16px;height:16px}
+.mobile-overlay{display:none}
+  
 /* BODY */
 .admin-body{display:flex;flex:1;overflow:hidden}
 
@@ -179,9 +182,22 @@ tr:last-child td{border-bottom:none}
 
 
 @media(max-width:768px){
+  .topbar{padding:0 .75rem}
+  .topbar-left{gap:.45rem}
+  .topbar-badge{display:none}
+  .topbar-date{display:none}
+  .topbar-view-btn{display:none}
+  .mobile-menu-btn{display:inline-flex}
+  .admin-body{position:relative}
+  .sidebar{display:block;position:fixed;top:54px;left:0;bottom:0;width:min(82vw,280px);transform:translateX(-102%);transition:transform .25s ease;z-index:60;box-shadow:10px 0 28px rgba(0,0,0,.45)}
+  .sidebar.open{transform:translateX(0)}
+  .mobile-overlay{display:block;position:fixed;inset:54px 0 0 0;background:rgba(0,0,0,.45);backdrop-filter:blur(2px);z-index:55;opacity:0;pointer-events:none;transition:opacity .2s}
+  .mobile-overlay.open{opacity:1;pointer-events:auto}
+  .content{padding:1rem}
   .stats-grid{grid-template-columns:1fr 1fr}
   .form-grid,.form-grid-3{grid-template-columns:1fr}
-  .sidebar{display:none}
+  
+  
 }
 </style>
 </head>
@@ -206,6 +222,9 @@ tr:last-child td{border-bottom:none}
     <div class="topbar-left">
       <span class="topbar-logo">MUSCLE <span>JUNKIES</span></span>
       <span class="topbar-badge">ADMIN</span>
+      <button class="mobile-menu-btn" onclick="toggleSidebar()" aria-label="Abrir menú">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
     </div>
     <div class="topbar-right">
       <span class="topbar-date" id="topbar-date"></span>
@@ -218,7 +237,7 @@ tr:last-child td{border-bottom:none}
   <div class="admin-body">
 
     <!-- SIDEBAR -->
-    <div class="sidebar">
+    <div class="sidebar" id="admin-sidebar">
       <div class="sidebar-section">General</div>
       <button class="nav-btn active" onclick="goTo('dashboard')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -249,7 +268,7 @@ tr:last-child td{border-bottom:none}
         Descuentos
       </button>
     </div>
-
+<div class="mobile-overlay" id="mobile-overlay" onclick="closeSidebar()"></div>
     <!-- CONTENT -->
     <div class="content">
 
@@ -824,7 +843,27 @@ function goTo(page) {
       b.classList.add('active');
     }
   });
+  closeSidebar();
 }
+
+function toggleSidebar() {
+  const sidebar = document.getElementById('admin-sidebar');
+  const overlay = document.getElementById('mobile-overlay');
+  if (!sidebar || !overlay || window.innerWidth > 768) return;
+  sidebar.classList.toggle('open');
+  overlay.classList.toggle('open');
+}
+function closeSidebar() {
+  const sidebar = document.getElementById('admin-sidebar');
+  const overlay = document.getElementById('mobile-overlay');
+  if (!sidebar || !overlay) return;
+  sidebar.classList.remove('open');
+  overlay.classList.remove('open');
+}
+
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 768) closeSidebar();
+});
 
 // ══════════════════════════════════════════
 // DASHBOARD
