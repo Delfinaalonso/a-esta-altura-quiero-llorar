@@ -415,6 +415,10 @@ main { padding-top: 64px; min-height: 100vh; }
 /* ── SHOP PAGE ── */
 .shop-header { text-align: center; margin-bottom: 2.5rem; padding: 3rem 0 0; }
 .shop-header h1 { font-size: clamp(3rem, 7vw, 5rem); }
+.shop-search-wrap{max-width:520px;margin:0 auto 1.2rem;position:relative}
+.shop-search-input{width:100%;background:var(--card);border:1px solid var(--border);border-radius:9999px;padding:.7rem 1rem .7rem 2.6rem;color:var(--fg);font-size:.9rem;outline:none;transition:border-color .2s,box-shadow .2s}
+.shop-search-input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(77,255,0,.12)}
+.shop-search-icon{position:absolute;left:1rem;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--muted-fg)}
 .filter-row { display: flex; flex-wrap: wrap; justify-content: center; gap: .75rem; margin-bottom: 2.5rem; }
 .filter-btn {
   padding: .45rem 1.25rem; border-radius: 9999px; font-size: .875rem; font-weight: 500;
@@ -1318,6 +1322,10 @@ justify-content:center;
         <h1>NUESTRA <span class="text-primary">TIENDA</span></h1>
         <p class="text-muted" style="margin-top:.5rem">Suplementos premium para cada objetivo</p>
       </div>
+      <div class="shop-search-wrap">
+        <svg class="shop-search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="shop-search" class="shop-search-input" type="search" placeholder="Buscar por nombre, categoría o beneficio..." oninput="updateShopSearch(this.value)">
+      </div>
       <div class="filter-row" id="filter-row"></div>
       <!-- Grid productos normales -->
       <div class="products-grid" id="shop-grid"></div>
@@ -1458,8 +1466,7 @@ justify-content:center;
       </div>
       <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;display:flex;align-items:flex-start;gap:.75rem" class="fade-in-view delay-3">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="flex-shrink:0;margin-top:2px"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-        <div><div style="font-weight:600;margin-bottom:.25rem;font-size:.9rem">Email</div><p class="text-muted" style="font-size:.85rem"><a href="mailto:ventas@musclejunkies.com.ar" style="color:var(--muted-fg)">ventas@musclejunkies.com.ar</a></p></div>
-      </div>
+       <div style="min-width:0"><div style="font-weight:600;margin-bottom:.25rem;font-size:.9rem">Email</div><p class="text-muted" style="font-size:.85rem;word-break:break-word;overflow-wrap:anywhere"><a href="mailto:mjsuplementos05@gmail.com" style="color:var(--muted-fg);word-break:break-word">mjsuplementos05@gmail.com</a></p></div>
     </div>
     <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:2rem" class="fade-in-view">
       <h2 style="font-size:1.75rem;margin-bottom:1.5rem">ENVIANOS UN MENSAJE</h2>
@@ -2019,14 +2026,14 @@ async function goToCheckout() {
 
   try {
     if (btn) { btn.disabled = true; btn.textContent = 'Confirmando...'; }
-
+const checkoutMethod = document.getElementById('checkout-method')?.value || 'acordar_whatsapp';
     const total = cart.reduce((s, item) => s + (item.product.price * item.quantity), 0);
     const orderPayload = {
       status: 'pending',
       total,
       shipping_name: 'Pedido web',
       shipping_address: null,
-      shipping_city: null,
+      shipping_city: null,payment_method: checkoutMethod,
       created_at: new Date().toISOString(),
     };
 
@@ -2059,12 +2066,20 @@ async function goToCheckout() {
       showToast('Pedido creado, pero hubo variantes con error al actualizar stock.');
       console.error('[checkout] Errores al descontar stock:', stockUpdates.filter(r => r.status === 'rejected'));
     }
-
+const paymentMessages = {
+      mercado_pago: 'Te compartimos el link de pago de Mercado Pago.',
+      transferencia: 'Te enviamos los datos de transferencia por WhatsApp.',
+      acordar_whatsapp: 'Te contactamos por WhatsApp para coordinar pago/envío.',
+    };
     cart = [];
     updateCartBadge();
     renderCart();
     loadProductsFromDB();
-    showToast('✅ Pedido creado correctamente. Te contactamos por WhatsApp para coordinar pago/envío.');
+    if (checkoutMethod === 'mercado_pago' && APP_CONFIG.mercadoPagoCheckoutUrl) {
+      window.open(APP_CONFIG.mercadoPagoCheckoutUrl, '_blank');
+    }
+
+    showToast('✅ Pedido creado correctamente. ' + (paymentMessages[checkoutMethod] || paymentMessages.acordar_whatsapp));
   } catch(err) {
     showToast('❌ Error al procesar: ' + err.message);
     console.error('[checkout] error:', err);
@@ -2216,6 +2231,12 @@ function renderFeatured() {
 
 // ── RENDER SHOP ──
 let activeCategory = null;
+let shopSearchTerm = "";
+
+function updateShopSearch(value) {
+  shopSearchTerm = String(value || "").trim().toLowerCase();
+  renderShop(activeCategory);
+}
 function renderShop(cat) {
   if (cat !== undefined) activeCategory = cat;
 
@@ -2245,12 +2266,22 @@ function renderShop(cat) {
     if (cg) cg.style.display = 'none';
     if (sg) sg.style.display = 'grid';
     const publicProducts = products.filter(p => p && p.visible === true);
-    const filtered = activeCategory
+    const byCategory = activeCategory
       ? publicProducts.filter(p => p.category === activeCategory)
       : publicProducts;
+    const filtered = byCategory.filter(p => {
+      if (!shopSearchTerm) return true;
+      const haystack = [
+        p.name,
+        p.category,
+        p.description,
+        ...(Array.isArray(p.benefits) ? p.benefits : []),
+      ].join(' ').toLowerCase();
+      return haystack.includes(shopSearchTerm);
+    });
     if (sg) {
       sg.innerHTML = filtered.length === 0
-        ? '<p style="grid-column:1/-1;text-align:center;color:var(--muted-fg);padding:3rem 0">No hay productos en esta categoría.</p>'
+         ? `<p style="grid-column:1/-1;text-align:center;color:var(--muted-fg);padding:3rem 0">${shopSearchTerm ? 'No encontramos productos con esa búsqueda.' : 'No hay productos en esta categoría.'}</p>`
         : filtered.map((p, i) => renderProductCard(p, i)).join('');
     }
   }
@@ -2303,11 +2334,12 @@ function showDetail(slugOrId) {
   function renderBenefitCards(benefits) {
     return `<div class="rich-benefits-grid">
       ${benefits.map(b => {
-        const detail = benefitDetails[b] || { icon: "✅", desc: b };
+        const detail = benefitDetails[b] || { icon: "✅", desc: "" };
+        const hasDescription = detail.desc && detail.desc !== b;
         return `<div class="rich-benefit-card">
           <div style="font-size:1.4rem;margin-bottom:.4rem">${detail.icon}</div>
           <div class="rich-benefit-title">${b}</div>
-          <div class="rich-benefit-desc">${detail.desc}</div>
+          ${hasDescription ? `<div class="rich-benefit-desc">${detail.desc}</div>` : ""}
         </div>`;
       }).join('')}
     </div>`;
@@ -2447,7 +2479,7 @@ function showDetail(slugOrId) {
   </div>` : ''}
 
   <!-- RESEÑAS -->
-  <div class="detail-section">
+    ${(p.reviews > 0 && (p.customerReviews || []).length > 0) ? `<div class="detail-section">
     <p class="detail-section-label">Lo que dicen nuestros clientes</p>
     <h2 class="detail-section-title">RESEÑAS VERIFICADAS</h2>
     <div class="rich-reviews-summary">
@@ -2470,7 +2502,7 @@ function showDetail(slugOrId) {
         <p class="rich-review-meta">Compra verificada · ${r.date}</p>
       </div>`).join('')}
     </div>
-  </div>
+  </div>` : ''}
 
   <!-- RELACIONADOS -->
   ${related2.length > 0 ? `
@@ -2598,8 +2630,17 @@ function renderCart() {
         <div class="cart-summary-row"><span>Envío</span><span>${totalPrice >= 200000 ? 'Gratis' : 'A calcular'}</span></div>
         ${totalPrice < 200000 ? `<div class="cart-summary-row"><span style="color:var(--primary);font-size:.8rem">Te faltan ${fmt(200000-totalPrice)} para envío gratis</span></div>` : ''}
         <div class="cart-summary-row total"><span>Total</span><span>${fmt(totalPrice)}</span></div>
+         <div style="margin-top:1rem">
+          <label for="checkout-method" style="display:block;font-size:.74rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-fg);margin-bottom:.4rem">Método de pago</label>
+          <select id="checkout-method" style="width:100%;background:var(--muted-bg);border:1px solid var(--border);border-radius:var(--radius);padding:.75rem .85rem;color:var(--fg);font-size:.88rem">
+            <option value="mercado_pago">Mercado Pago</option>
+            <option value="transferencia">Transferencia bancaria</option>
+            <option value="acordar_whatsapp">Acordar por WhatsApp</option>
+          </select>
+        </div>
+      
         <button class="btn-primary" style="width:100%;justify-content:center;margin-top:1rem;padding:1rem" onclick="goToCheckout()" id="btn-checkout">
-          Finalizar compra
+          Confirmar pedido
         </button>
         <button onclick="navigate('tienda')" style="width:100%;text-align:center;margin-top:.75rem;background:none;border:none;color:var(--muted-fg);font-size:.875rem;cursor:pointer;transition:color .2s" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='var(--muted-fg)'">
           Seguir comprando
