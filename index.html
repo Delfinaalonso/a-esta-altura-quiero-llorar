@@ -2186,7 +2186,7 @@ function renderProductCard(p, index) {
           '<span class="product-card-price">' + fmt(p.price) + '</span>' +
           oldPriceHtml +
         '</div>' +
-        '<button class="btn-icon" onclick="event.stopPropagation();addToCart(products.find(function(x){return x.id===\'' + p.id + '\'}))\" aria-label="Agregar al carrito">' +
+        '<button class="btn-icon" onclick="event.stopPropagation();addToCart(products.find(function(x){return x.id===\'' + p.id + '\'}))" aria-label="Agregar al carrito">' +
           '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>' +
         '</button>' +
       '</div>' +
@@ -2565,15 +2565,19 @@ function addToCart(product, flavor) {
   showToast(`${product.name} agregado al carrito`);
 }
 
-function removeFromCart(productId) {
-  cart = cart.filter(i => i.product.id !== productId);
+function getCartItemKey(item) {
+  return [item.product.id, item.variantId || item.product.variantId || '', item.flavor || ''].join('::');
+}
+
+function removeFromCart(itemKey) {
+  cart = cart.filter(i => getCartItemKey(i) !== itemKey);
   updateCartBadge();
   renderCart();
 }
 
-function updateCartQty(productId, qty) {
-  if(qty <= 0) return removeFromCart(productId);
-  cart = cart.map(i => i.product.id === productId ? {...i, quantity: qty} : i);
+function updateCartQty(itemKey, qty) {
+  if(qty <= 0) return removeFromCart(itemKey);
+  cart = cart.map(i => getCartItemKey(i) === itemKey ? {...i, quantity: qty} : i);
   renderCart();
 }
 
@@ -2598,10 +2602,9 @@ function renderCart() {
     return;
   }
   const totalPrice = cart.reduce((s,i) => s + i.product.price * i.quantity, 0);
-  el.innerHTML = `
-  <div class="cart-grid">
-    <div>
-      ${cart.map(item => `
+  const cartItemsHtml = cart.map(item => {
+    const itemKey = getCartItemKey(item);
+    return `
       <div class="cart-item">
         <div style="width:80px;height:80px;border-radius:var(--radius);background:var(--muted-bg);display:flex;align-items:center;justify-content:center;font-size:2.5rem;flex-shrink:0;overflow:hidden">
           ${item.product.imageUrl
@@ -2614,14 +2617,19 @@ function renderCart() {
           <p class="cart-item-price">${fmt(item.product.price)}</p>
         </div>
         <div class="cart-qty">
-          <button onclick="updateCartQty('${item.product.id}',${item.quantity-1})">−</button>
+          <button onclick="updateCartQty('${itemKey}',${item.quantity-1})">−</button>
           <span>${item.quantity}</span>
-          <button onclick="updateCartQty('${item.product.id}',${item.quantity+1})">+</button>
+          <button onclick="updateCartQty('${itemKey}',${item.quantity+1})">+</button>
         </div>
-        <button class="cart-remove" onclick="removeFromCart('${item.product.id}')" aria-label="Eliminar">
+        <button class="cart-remove" onclick="removeFromCart('${itemKey}')" aria-label="Eliminar">
           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
         </button>
-      </div>`).join('')}
+      </div>`;
+  }).join('');
+  el.innerHTML = `
+  <div class="cart-grid">
+    <div>
+      ${cartItemsHtml}
     </div>
     <div>
       <div class="cart-summary">
