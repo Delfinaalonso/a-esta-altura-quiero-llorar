@@ -2041,9 +2041,62 @@ function onPaymentMethodChange(method) {
   }
 }
 
+function onShippingZoneChange(zone) {
+  document.getElementById('shipping-form-pico').style.display = zone === 'pico' ? 'block' : 'none';
+  document.getElementById('shipping-form-interior').style.display = zone === 'interior' ? 'block' : 'none';
+}
+
+function getShippingData() {
+  const zone = document.getElementById('shipping-zone')?.value || '';
+  if (zone === 'pico') {
+    return {
+      zone,
+      nombre: document.getElementById('ship-nombre')?.value.trim() || '',
+      telefono: document.getElementById('ship-telefono')?.value.trim() || '',
+      direccion: document.getElementById('ship-direccion')?.value.trim() || '',
+      notas: document.getElementById('ship-notas')?.value.trim() || '',
+    };
+  } else if (zone === 'interior') {
+    return {
+      zone,
+      nombre: document.getElementById('ship-ca-nombre')?.value.trim() || '',
+      telefono: document.getElementById('ship-ca-telefono')?.value.trim() || '',
+      calle: document.getElementById('ship-ca-calle')?.value.trim() || '',
+      ciudad: document.getElementById('ship-ca-ciudad')?.value.trim() || '',
+      provincia: document.getElementById('ship-ca-provincia')?.value.trim() || '',
+      cp: document.getElementById('ship-ca-cp')?.value.trim() || '',
+      notas: document.getElementById('ship-ca-notas')?.value.trim() || '',
+    };
+  }
+  return { zone: '' };
+}
+
+function validateShipping(shipping) {
+  if (!shipping.zone) return 'Por favor seleccioná una zona de envío.';
+  if (shipping.zone === 'pico') {
+    if (!shipping.nombre) return 'Por favor ingresá tu nombre completo.';
+    if (!shipping.telefono) return 'Por favor ingresá tu teléfono.';
+    if (!shipping.direccion) return 'Por favor ingresá tu dirección.';
+  }
+  if (shipping.zone === 'interior') {
+    if (!shipping.nombre) return 'Por favor ingresá tu nombre completo.';
+    if (!shipping.telefono) return 'Por favor ingresá tu teléfono.';
+    if (!shipping.calle) return 'Por favor ingresá tu calle y número.';
+    if (!shipping.ciudad) return 'Por favor ingresá tu ciudad.';
+    if (!shipping.provincia) return 'Por favor ingresá tu provincia.';
+    if (!shipping.cp) return 'Por favor ingresá tu código postal.';
+  }
+  return null;
+}
+
 async function goToCheckout() {
   const btn = document.getElementById('btn-checkout');
   if (!cart.length) return;
+
+  // Validar envío
+  const shipping = getShippingData();
+  const shippingError = validateShipping(shipping);
+  if (shippingError) { showToast(shippingError); return; }
 
   try {
     if (btn) { btn.disabled = true; btn.textContent = 'Confirmando...'; }
@@ -2052,12 +2105,16 @@ async function goToCheckout() {
     const subtotal = cart.reduce((s, item) => s + (item.product.price * item.quantity), 0);
     const total = isTransfer ? Math.round(subtotal * 0.90) : subtotal;
 
+    const shippingAddress = shipping.zone === 'pico'
+      ? shipping.direccion
+      : `${shipping.calle}, ${shipping.ciudad}, ${shipping.provincia} (CP: ${shipping.cp})`;
+
     const orderPayload = {
       status: 'pending',
       total,
-      shipping_name: 'Pedido web',
-      shipping_address: null,
-      shipping_city: null,
+      shipping_name: shipping.nombre,
+      shipping_address: shippingAddress,
+      shipping_city: shipping.zone === 'pico' ? 'General Pico' : shipping.ciudad,
       payment_method: checkoutMethod,
       created_at: new Date().toISOString(),
     };
@@ -2096,10 +2153,19 @@ async function goToCheckout() {
     ).join('\n');
 
     let waMsg = `Hola! Quiero confirmar mi pedido 🛒\n\n${itemLines}\n\n`;
+
     if (isTransfer) {
-      waMsg += `Subtotal: ${fmt(subtotal)}\nDescuento transferencia (10%): -${fmt(Math.round(subtotal * 0.10))}\n*TOTAL: ${fmt(total)}*\n\nMétodo de pago: Transferencia bancaria\nAdjunto el comprobante de transferencia.`;
+      waMsg += `Subtotal: ${fmt(subtotal)}\nDescuento transferencia (10%): -${fmt(Math.round(subtotal * 0.10))}\n*TOTAL: ${fmt(total)}*\n\nMétodo de pago: Transferencia bancaria\nAdjunto el comprobante de transferencia.\n\n`;
     } else {
-      waMsg += `*TOTAL: ${fmt(total)}*\n\nMétodo de pago: Mercado Pago`;
+      waMsg += `*TOTAL: ${fmt(total)}*\n\nMétodo de pago: Mercado Pago\n\n`;
+    }
+
+    if (shipping.zone === 'pico') {
+      waMsg += `📍 *Envío — General Pico (domicilio)*\nNombre: ${shipping.nombre}\nTeléfono: ${shipping.telefono}\nDirección: ${shipping.direccion}`;
+      if (shipping.notas) waMsg += `\nAclaraciones: ${shipping.notas}`;
+    } else {
+      waMsg += `🚚 *Envío — Correo Argentino*\nNombre: ${shipping.nombre}\nTeléfono: ${shipping.telefono}\nDirección: ${shipping.calle}\nCiudad: ${shipping.ciudad}\nProvincia: ${shipping.provincia}\nCódigo Postal: ${shipping.cp}`;
+      if (shipping.notas) waMsg += `\nAclaraciones: ${shipping.notas}`;
     }
 
     cart = [];
@@ -2111,7 +2177,6 @@ async function goToCheckout() {
       window.open(APP_CONFIG.mercadoPagoCheckoutUrl, '_blank');
     }
 
-    // Abrir WhatsApp con el pedido
     const waUrl = `https://wa.me/${APP_CONFIG.businessWhatsapp || '5492302207044'}?text=${encodeURIComponent(waMsg)}`;
     window.open(waUrl, '_blank');
 
@@ -2710,6 +2775,43 @@ function renderCart() {
             <div style="display:flex;justify-content:space-between;gap:.5rem"><span style="color:var(--muted-fg);flex-shrink:0">CBU</span><span style="font-weight:600;font-size:.78rem;word-break:break-all">0150834301000117600956</span></div>
           </div>
           <p style="font-size:.73rem;color:var(--muted-fg);margin-top:.65rem;line-height:1.5">Hacé la transferencia y adjuntá el comprobante en el WhatsApp al confirmar el pedido.</p>
+        </div>
+
+        <!-- ENVÍO -->
+        <div style="margin-top:1rem">
+          <label style="display:block;font-size:.74rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-fg);margin-bottom:.4rem">Zona de envío</label>
+          <select id="shipping-zone" onchange="onShippingZoneChange(this.value)" style="width:100%;background:var(--muted-bg);border:1px solid var(--border);border-radius:var(--radius);padding:.75rem .85rem;color:var(--fg);font-size:.88rem">
+            <option value="">— Seleccioná tu zona —</option>
+            <option value="pico">📍 General Pico (envío gratis a domicilio)</option>
+            <option value="interior">🚚 Fuera de General Pico (Correo Argentino)</option>
+          </select>
+        </div>
+
+        <!-- Formulario General Pico -->
+        <div id="shipping-form-pico" style="display:none;margin-top:.75rem;background:rgba(77,255,0,.05);border:1px solid rgba(77,255,0,.2);border-radius:var(--radius);padding:1rem">
+          <p style="font-size:.72rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--primary);margin-bottom:.75rem">📍 Datos para envío a domicilio</p>
+          <div style="display:flex;flex-direction:column;gap:.6rem">
+            <input id="ship-nombre" type="text" placeholder="Nombre completo *" style="width:100%;background:var(--muted-bg);border:1px solid var(--border);border-radius:var(--radius);padding:.65rem .85rem;color:var(--fg);font-size:.85rem;outline:none;transition:border-color .2s" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'">
+            <input id="ship-telefono" type="tel" placeholder="Teléfono *" style="width:100%;background:var(--muted-bg);border:1px solid var(--border);border-radius:var(--radius);padding:.65rem .85rem;color:var(--fg);font-size:.85rem;outline:none;transition:border-color .2s" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'">
+            <input id="ship-direccion" type="text" placeholder="Calle y número *" style="width:100%;background:var(--muted-bg);border:1px solid var(--border);border-radius:var(--radius);padding:.65rem .85rem;color:var(--fg);font-size:.85rem;outline:none;transition:border-color .2s" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'">
+            <textarea id="ship-notas" rows="2" placeholder="Aclaraciones o detalles adicionales (opcional)" style="width:100%;background:var(--muted-bg);border:1px solid var(--border);border-radius:var(--radius);padding:.65rem .85rem;color:var(--fg);font-size:.85rem;outline:none;resize:none;transition:border-color .2s;font-family:inherit" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+          </div>
+          <p style="font-size:.72rem;color:var(--primary);font-weight:600;margin-top:.6rem">✅ Envío gratis dentro de General Pico</p>
+        </div>
+
+        <!-- Formulario Correo Argentino -->
+        <div id="shipping-form-interior" style="display:none;margin-top:.75rem;background:var(--muted-bg);border:1px solid var(--border);border-radius:var(--radius);padding:1rem">
+          <p style="font-size:.72rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--primary);margin-bottom:.75rem">🚚 Datos para Correo Argentino</p>
+          <div style="display:flex;flex-direction:column;gap:.6rem">
+            <input id="ship-ca-nombre" type="text" placeholder="Nombre completo *" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:.65rem .85rem;color:var(--fg);font-size:.85rem;outline:none;transition:border-color .2s" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'">
+            <input id="ship-ca-telefono" type="tel" placeholder="Teléfono *" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:.65rem .85rem;color:var(--fg);font-size:.85rem;outline:none;transition:border-color .2s" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'">
+            <input id="ship-ca-calle" type="text" placeholder="Calle y número *" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:.65rem .85rem;color:var(--fg);font-size:.85rem;outline:none;transition:border-color .2s" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'">
+            <input id="ship-ca-ciudad" type="text" placeholder="Ciudad *" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:.65rem .85rem;color:var(--fg);font-size:.85rem;outline:none;transition:border-color .2s" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'">
+            <input id="ship-ca-provincia" type="text" placeholder="Provincia *" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:.65rem .85rem;color:var(--fg);font-size:.85rem;outline:none;transition:border-color .2s" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'">
+            <input id="ship-ca-cp" type="text" placeholder="Código Postal *" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:.65rem .85rem;color:var(--fg);font-size:.85rem;outline:none;transition:border-color .2s" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'">
+            <textarea id="ship-ca-notas" rows="2" placeholder="Aclaraciones o detalles adicionales (opcional)" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:.65rem .85rem;color:var(--fg);font-size:.85rem;outline:none;resize:none;transition:border-color .2s;font-family:inherit" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)'"></textarea>
+          </div>
+          <p style="font-size:.72rem;color:var(--muted-fg);margin-top:.6rem;line-height:1.5">El costo de envío se coordina por WhatsApp según el peso del paquete.</p>
         </div>
 
         <button class="btn-primary" style="width:100%;justify-content:center;margin-top:1rem;padding:1rem" onclick="goToCheckout()" id="btn-checkout">
