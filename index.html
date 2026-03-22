@@ -2021,20 +2021,44 @@ function hideLoadingState() {
 }
 
 // ── CHECKOUT (Cloudflare Pages + Supabase) ──
+function onPaymentMethodChange(method) {
+  const total = cart.reduce((s, item) => s + (item.product.price * item.quantity), 0);
+  const discountRow = document.getElementById('transfer-discount-row');
+  const bankBox = document.getElementById('bank-data-box');
+  const discountAmount = document.getElementById('transfer-discount-amount');
+  const transferTotal = document.getElementById('transfer-total-amount');
+
+  if (method === 'transferencia') {
+    const saving = Math.round(total * 0.10);
+    const finalTotal = Math.round(total * 0.90);
+    if (discountAmount) discountAmount.textContent = '- ' + fmt(saving);
+    if (transferTotal) transferTotal.textContent = fmt(finalTotal);
+    if (discountRow) discountRow.style.display = 'block';
+    if (bankBox) bankBox.style.display = 'block';
+  } else {
+    if (discountRow) discountRow.style.display = 'none';
+    if (bankBox) bankBox.style.display = 'none';
+  }
+}
+
 async function goToCheckout() {
   const btn = document.getElementById('btn-checkout');
   if (!cart.length) return;
 
   try {
     if (btn) { btn.disabled = true; btn.textContent = 'Confirmando...'; }
-const checkoutMethod = document.getElementById('checkout-method')?.value || 'acordar_whatsapp';
-    const total = cart.reduce((s, item) => s + (item.product.price * item.quantity), 0);
+    const checkoutMethod = document.getElementById('checkout-method')?.value || 'mercado_pago';
+    const isTransfer = checkoutMethod === 'transferencia';
+    const subtotal = cart.reduce((s, item) => s + (item.product.price * item.quantity), 0);
+    const total = isTransfer ? Math.round(subtotal * 0.90) : subtotal;
+
     const orderPayload = {
       status: 'pending',
       total,
       shipping_name: 'Pedido web',
       shipping_address: null,
-      shipping_city: null,payment_method: checkoutMethod,
+      shipping_city: null,
+      payment_method: checkoutMethod,
       created_at: new Date().toISOString(),
     };
 
@@ -2052,7 +2076,6 @@ const checkoutMethod = document.getElementById('checkout-method')?.value || 'aco
 
     await Promise.all(orderItems.map(oi => sb('/order_items', 'POST', oi)));
 
-    // Descontar stock sin bloquear el flujo completo si falla alguna variante.
     const stockUpdates = await Promise.allSettled(cart.map(async (item) => {
       const variantId = item.variantId || item.product.variantId;
       if (!variantId) return;
@@ -2064,28 +2087,40 @@ const checkoutMethod = document.getElementById('checkout-method')?.value || 'aco
     }));
 
     if (stockUpdates.some(r => r.status === 'rejected')) {
-      showToast('Pedido creado, pero hubo variantes con error al actualizar stock.');
       console.error('[checkout] Errores al descontar stock:', stockUpdates.filter(r => r.status === 'rejected'));
     }
-const paymentMessages = {
-      mercado_pago: 'Te compartimos el link de pago de Mercado Pago.',
-      transferencia: 'Te enviamos los datos de transferencia por WhatsApp.',
-      acordar_whatsapp: 'Te contactamos por WhatsApp para coordinar pago/envío.',
-    };
+
+    // Armar mensaje de WhatsApp
+    const itemLines = cart.map(item =>
+      `• ${item.product.name}${item.flavor ? ' (' + item.flavor + ')' : ''} x${item.quantity} — ${fmt(item.product.price * item.quantity)}`
+    ).join('\n');
+
+    let waMsg = `Hola! Quiero confirmar mi pedido 🛒\n\n${itemLines}\n\n`;
+    if (isTransfer) {
+      waMsg += `Subtotal: ${fmt(subtotal)}\nDescuento transferencia (10%): -${fmt(Math.round(subtotal * 0.10))}\n*TOTAL: ${fmt(total)}*\n\nMétodo de pago: Transferencia bancaria\nAdjunto el comprobante de transferencia.`;
+    } else {
+      waMsg += `*TOTAL: ${fmt(total)}*\n\nMétodo de pago: Mercado Pago`;
+    }
+
     cart = [];
     updateCartBadge();
     renderCart();
     loadProductsFromDB();
+
     if (checkoutMethod === 'mercado_pago' && APP_CONFIG.mercadoPagoCheckoutUrl) {
       window.open(APP_CONFIG.mercadoPagoCheckoutUrl, '_blank');
     }
 
-    showToast('✅ Pedido creado correctamente. ' + (paymentMessages[checkoutMethod] || paymentMessages.acordar_whatsapp));
+    // Abrir WhatsApp con el pedido
+    const waUrl = `https://wa.me/${APP_CONFIG.businessWhatsapp || '5492302207044'}?text=${encodeURIComponent(waMsg)}`;
+    window.open(waUrl, '_blank');
+
+    showToast('✅ Pedido confirmado. Abriendo WhatsApp...');
   } catch(err) {
     showToast('❌ Error al procesar: ' + err.message);
     console.error('[checkout] error:', err);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Finalizar compra'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Confirmar pedido por WhatsApp'; }
   }
 }
 
@@ -2149,7 +2184,7 @@ function renderProductCard(p, index) {
   var imgSrc = getProductImageForFlavor(p, null);
 
   var frontHtml = imgSrc
-    ? '<img src="' + imgSrc + '" alt="' + p.name + '" style="width:100%;height:100%;object-fit:cover;display:block">'
+    ? '<img src="' + imgSrc + '" alt="' + p.name + '" style="width:100%;height:100%;object-fit:contain;display:block;padding:1rem;max-height:220px;box-sizing:border-box">'
     : '<div class="emoji-placeholder">' + emoji + '</div>';
 
   var bensHtml = '';
@@ -2186,6 +2221,7 @@ function renderProductCard(p, index) {
         '<div>' +
           '<span class="product-card-price">' + fmt(p.price) + '</span>' +
           oldPriceHtml +
+          '<div style="font-size:.72rem;color:#4dff00;font-weight:600;margin-top:.2rem">💸 Transferencia: ' + fmt(Math.round(p.price * 0.9)) + '</div>' +
         '</div>' +
         '<button class="btn-icon" onclick="event.stopPropagation();addToCart(products.find(function(x){return x.id===\'' + p.id + '\'}))" aria-label="Agregar al carrito">' +
           '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>' +
@@ -2369,6 +2405,11 @@ function showDetail(slugOrId) {
       <div style="margin-bottom:1.5rem">
         <span class="detail-price" id="detail-price">${fmt(p.price)}</span>
         ${p.originalPrice ? `<span class="detail-old-price">${fmt(p.originalPrice)}</span>` : ''}
+        <div style="margin-top:.5rem;display:inline-flex;align-items:center;gap:.5rem;background:rgba(77,255,0,.08);border:1px solid rgba(77,255,0,.25);border-radius:.35rem;padding:.35rem .75rem">
+          <span style="font-size:.8rem;color:var(--muted-fg)">💸 Pagando con transferencia:</span>
+          <span style="font-size:1rem;font-weight:700;color:var(--primary)" id="detail-price-transfer">${fmt(Math.round(p.price * 0.9))}</span>
+          <span style="font-size:.72rem;font-weight:700;background:var(--primary);color:#0a0a0a;padding:.1rem .4rem;border-radius:.2rem">-10%</span>
+        </div>
       </div>
       <p class="detail-desc">${p.description}</p>
       ${p.flavors ? `
@@ -2641,15 +2682,38 @@ function renderCart() {
         <div class="cart-summary-row total"><span>Total</span><span>${fmt(totalPrice)}</span></div>
          <div style="margin-top:1rem">
           <label for="checkout-method" style="display:block;font-size:.74rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-fg);margin-bottom:.4rem">Método de pago</label>
-          <select id="checkout-method" style="width:100%;background:var(--muted-bg);border:1px solid var(--border);border-radius:var(--radius);padding:.75rem .85rem;color:var(--fg);font-size:.88rem">
-            <option value="mercado_pago">Mercado Pago</option>
-            <option value="transferencia">Transferencia bancaria</option>
-            <option value="acordar_whatsapp">Acordar por WhatsApp</option>
+          <select id="checkout-method" onchange="onPaymentMethodChange(this.value)" style="width:100%;background:var(--muted-bg);border:1px solid var(--border);border-radius:var(--radius);padding:.75rem .85rem;color:var(--fg);font-size:.88rem">
+            <option value="mercado_pago">Mercado Pago (precio normal)</option>
+            <option value="transferencia">Transferencia bancaria (10% OFF)</option>
           </select>
         </div>
-      
+
+        <!-- Descuento transferencia -->
+        <div id="transfer-discount-row" style="display:none;margin-top:.75rem;background:rgba(77,255,0,.07);border:1px solid rgba(77,255,0,.25);border-radius:var(--radius);padding:.65rem 1rem">
+          <div style="display:flex;justify-content:space-between;font-size:.85rem;color:var(--muted-fg);margin-bottom:.2rem">
+            <span>Descuento transferencia (10%)</span>
+            <span id="transfer-discount-amount" style="color:var(--primary);font-weight:700"></span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:1rem;font-weight:700;color:var(--fg)">
+            <span>Total con transferencia</span>
+            <span id="transfer-total-amount" style="color:var(--primary)"></span>
+          </div>
+        </div>
+
+        <!-- Datos bancarios -->
+        <div id="bank-data-box" style="display:none;margin-top:.75rem;background:var(--muted-bg);border:1px solid var(--border);border-radius:var(--radius);padding:1rem">
+          <p style="font-size:.72rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--primary);margin-bottom:.6rem">Datos para transferir</p>
+          <div style="display:flex;flex-direction:column;gap:.35rem;font-size:.83rem">
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--muted-fg)">Banco</span><span style="font-weight:600">ICBC</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:var(--muted-fg)">Titular</span><span style="font-weight:600">Joaquin Luis Carrion</span></div>
+            <div style="display:flex;justify-content:space-between;gap:.5rem"><span style="color:var(--muted-fg);flex-shrink:0">Alias</span><span style="font-weight:700;color:var(--primary);word-break:break-all">Suplementosmj</span></div>
+            <div style="display:flex;justify-content:space-between;gap:.5rem"><span style="color:var(--muted-fg);flex-shrink:0">CBU</span><span style="font-weight:600;font-size:.78rem;word-break:break-all">0150834301000117600956</span></div>
+          </div>
+          <p style="font-size:.73rem;color:var(--muted-fg);margin-top:.65rem;line-height:1.5">Hacé la transferencia y adjuntá el comprobante en el WhatsApp al confirmar el pedido.</p>
+        </div>
+
         <button class="btn-primary" style="width:100%;justify-content:center;margin-top:1rem;padding:1rem" onclick="goToCheckout()" id="btn-checkout">
-          Confirmar pedido
+          Confirmar pedido por WhatsApp
         </button>
         <button onclick="navigate('tienda')" style="width:100%;text-align:center;margin-top:.75rem;background:none;border:none;color:var(--muted-fg);font-size:.875rem;cursor:pointer;transition:color .2s" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='var(--muted-fg)'">
           Seguir comprando

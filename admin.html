@@ -1322,7 +1322,41 @@ async function updateOrderStatus(id, status) {
     if (o) o.status = status;
     showToast('Estado actualizado');
     renderDashboard();
+    renderPedidos();
+
+    // Si se cancela, ofrecer restaurar stock
+    if (status === 'cancelled') {
+      const restaurar = confirm('¿Querés restaurar el stock de los productos de este pedido?\n\nSi el cliente nunca pagó, conviene restaurarlo.');
+      if (restaurar) await restoreOrderStock(id);
+    }
   } catch(e) { showToast('Error: ' + e.message, true); }
+}
+
+async function restoreOrderStock(orderId) {
+  try {
+    const items = await sb(`/order_items?order_id=eq.${orderId}&select=*`) || [];
+    if (items.length === 0) { showToast('No se encontraron productos en el pedido.', true); return; }
+
+    await Promise.all(items.map(async (item) => {
+      const variantId = item.variant_id;
+      if (!variantId) return;
+      const variantRows = await sb(`/variants?id=eq.${variantId}&select=id,stock`);
+      const variant = Array.isArray(variantRows) ? variantRows[0] : null;
+      if (!variant) return;
+      const newStock = Number(variant.stock || 0) + Number(item.quantity || 1);
+      await sb(`/variants?id=eq.${variantId}`, 'PATCH', { stock: newStock });
+      // Actualizar en memoria
+      const v = allVariants.find(v => v.id === variantId);
+      if (v) v.stock = newStock;
+    }));
+
+    showToast('✅ Stock restaurado correctamente');
+    renderDashboard();
+    renderStock();
+  } catch(e) {
+    showToast('Error al restaurar stock: ' + e.message, true);
+    console.error('[restoreStock] error:', e);
+  }
 }
 
 async function openPedidoDetail(id) {
@@ -1366,6 +1400,7 @@ async function openPedidoDetail(id) {
       <button class="btn-aux" onclick="openAndreaniShipment('${o.id}')">📦 Generar Andreani</button>
       <button class="btn-aux" onclick="openCorreoArgShipment('${o.id}')">📮 Generar Correo Argentino</button>
       <button class="btn-aux" onclick="copyOrderAddress('${o.id}')">📋 Copiar dirección</button>
+      ${o.status === 'cancelled' ? `<button class="btn-aux" style="border-color:var(--warning);color:var(--warning)" onclick="restoreOrderStock('${o.id}')">↩️ Restaurar stock</button>` : ''}
     </div>`;
   openModal('modal-pedido');
 }
